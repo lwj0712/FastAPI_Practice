@@ -4,7 +4,7 @@
 
 간단한 형식의 게시글을 작성 할 수 있는 API
 
-- GET: 127.0.0.1:8000/post/
+- GET: 127.0.0.1:8000/post
 게시글 목록
 
 <br>
@@ -36,4 +36,10 @@
 
 ## calculatorAPI
 
-매개변수를 이용해 URL로 계산기를 구현한 API
+매개변수 a,b의 사칙연산을 응답으로 반환하는 API
+
+- GET: /calculate/add/{a}/{b}
+- GET: /calculate/sub/{a}/{b}
+- GET: /calculate/mul/{a}/{b}
+- GET: /calculate/div/{a}/{b}
+
