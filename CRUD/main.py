@@ -1,8 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
+import itertools
 
 app = FastAPI()
+
+id_counter = itertools.count(1)
 
 items = {}
 
@@ -11,18 +14,19 @@ class Item(BaseModel):
     name: str
     description: str | None = None
     price: float
+    category: str | None = None
 
 
 class ItemUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     price: float | None = None
+    category: str | None = None
 
 
-@app.post("/items/{item_id}", response_model=Item)
-async def create_item(item_id: int, item: Item):
-    if item_id in items:
-        raise HTTPException(status_code=400, detail="Item already exists")
+@app.post("/items", response_model=Item)
+async def create_item(item: Item):
+    item_id = next(id_counter)
     items[item_id] = item
     return item
 
@@ -37,6 +41,30 @@ async def read_item(item_id: int):
     if item_id not in items:
         raise HTTPException(status_code=404, detail="Item not found")
     return items[item_id]
+
+
+@app.get("/items/search", response_model=List[Item])
+async def search_items(name: str = Query(..., min_length=1)):
+    results = [item for item in items.values() if item.name.lower() == name.lower()]
+    if not results:
+        raise HTTPException(
+            status_code=404, detail="No items match the search criteria"
+        )
+    return results
+
+
+@app.get("/items/filter", response_model=List[Item])
+async def filter_items(category: str = Query(..., min_length=1)):
+    results = [
+        item
+        for item in items.values()
+        if item.category and item.category.lower() == category.lower()
+    ]
+    if not results:
+        raise HTTPException(
+            status_code=404, detail="No items found in the specified category"
+        )
+    return results
 
 
 @app.put("/items/{item_id}", response_model=Item)
