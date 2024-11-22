@@ -9,19 +9,15 @@ from passlib.context import CryptContext
 SECRET_KEY = "your-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 app = FastAPI()
 
-# 비밀번호 암호화 설정
-# 아래 코드는 비밀번호를 해싱하는 방법을 정의합니다.
-# pwd_context는 비밀번호를 검증하고 해싱하는 데 사용됩니다.
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-# OAuth2 설정
-# OAuth2PasswordBearer는 토큰을 받아서 사용자를 인증하는 방법을 정의합니다.
-# 아래 코드는 OAuth2PasswordBearer를 사용하여 토큰을 받아서 사용자를 인증합니다.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 fake_users_db = {}
+fake_refresh_tokens_db = {}
 
 
 class UserCreate(BaseModel):
@@ -44,6 +40,7 @@ class UserInDB(User):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    refresh_token: str | None = None
 
 
 class TokenData(BaseModel):
@@ -80,6 +77,15 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -110,8 +116,41 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": user.username}, expires_delta=refresh_token_expires
+    )
+    fake_refresh_tokens_db[user.username] = refresh_token  # 저장소에 저장
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "refresh_token": refresh_token,
+    }
+
+
+@app.post("/refresh-token", response_model=Token)
+async def refresh_access_token(refresh_token: str):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        if fake_refresh_tokens_db.get(username) != refresh_token:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
